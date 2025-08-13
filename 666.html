@@ -1,0 +1,170 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>花箱智能报价系统（临时运费100元版-修复）</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+    body {margin: 0; font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: linear-gradient(135deg,#f9f9f9,#e3f2fd); color: #333;}
+    .navbar {background: #90caf9; padding: 15px; text-align: center; color: #fff; font-size: 20px; font-weight: bold; letter-spacing: 1px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);}
+    .container {max-width: 650px; margin: 30px auto; background: #fff; padding: 25px 30px; border-radius: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.08);}
+    h2 {text-align: center; color: #1976d2; margin-bottom: 20px;}
+    label {display:block; margin-top: 12px; font-weight: 600; color: #444;}
+    input, select {width: 100%; padding: 10px; margin-top: 6px; border: 1px solid #cfd8dc; border-radius: 8px; font-size: 15px; transition: all 0.3s ease; box-sizing: border-box;}
+    button {background: linear-gradient(to right,#81c784,#4caf50); color: white; padding: 6px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: background 0.3s ease;}
+    button:hover {background: linear-gradient(to right,#66bb6a,#43a047);}
+    .result {margin-top: 20px; padding: 18px; background: #f1f8ff; border-left: 5px solid #64b5f6; border-radius: 8px; font-size: 15px; line-height: 1.7em; color: #333;}
+    table {width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 14px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.05);}
+    th, td {border: 1px solid #e3f2fd; padding: 8px; text-align: center;}
+    th {background-color: #e3f2fd; color: #1565c0; font-weight: 600;}
+    .subtitle {margin-top: 20px; font-weight: 600; color: #1976d2;}
+</style>
+<script>
+let lastCalculation = null;
+
+function calcCost() {
+    let L = parseFloat(document.getElementById("length").value);
+    let W = parseFloat(document.getElementById("width").value);
+    let H = parseFloat(document.getElementById("height").value);
+    let thickness = parseFloat(document.getElementById("thickness").value);
+    let paint = parseFloat(document.getElementById("paint").value);
+    let style = parseInt(document.getElementById("style").value);
+    let qty = parseInt(document.getElementById("quantity").value);
+    let pricePerKg = 9.0;
+
+    if(isNaN(L)||isNaN(W)||isNaN(H)||isNaN(qty)||qty<=0){
+        alert("请输入完整的尺寸、数量！");
+        return;
+    }
+
+    // 面积计算
+    let area_cm2 = 2*(L+W)*(H+8)+L*W;
+    let area_m2 = area_cm2/10000;
+
+    // 重量计算
+    let rho = 5.5;
+    if(thickness===1.0) rho=7.8;
+    if(thickness===1.2) rho=9.36;
+    let weight = area_m2*rho;
+    if(style===2) weight+=3;
+    if(style===3) weight+=5;
+
+    // 单件产品成本(不含运费)
+    let cost_single = weight*pricePerKg + weight*paint;
+    let totalProductCost = cost_single*qty;
+
+    // 体积计算(方数)
+    let volume_single = (L*W*H)/1000000;
+    let total_volume = volume_single*qty;
+
+    // 运费计算：统一100元/方，最低收费50元
+    let unitFee = 100;
+    let minFee = 50;
+    let freight_calc = total_volume*unitFee;
+    let freight = (freight_calc<minFee)?minFee:freight_calc;
+
+    // 总成本=产品成本+运费
+    let totalCostWithFreight = totalProductCost+freight;
+
+    // 利润率表
+    let refTable = `<table><tr><th>利润率(%)</th><th>数量</th><th>单价(元)</th><th>总价(元)</th><th>运费(元)</th><th>含运费总价(元)</th><th>操作</th></tr>`;
+    for(let rate=20; rate<=60; rate+=5){
+        let totalPrice = totalCostWithFreight/(1-rate/100);
+        let singlePrice = totalPrice/qty;
+        refTable+=`<tr>
+        <td>${rate}</td><td>${qty}</td>
+        <td>${singlePrice.toFixed(2)}</td>
+        <td>${totalPrice.toFixed(2)}</td>
+        <td>${freight.toFixed(2)}</td>
+        <td>${totalPrice.toFixed(2)}</td>
+        <td><button onclick="downloadExcel(${singlePrice},${totalPrice},${freight})">下载客户报价单</button></td>
+        </tr>`;
+    }
+    refTable+="</table>";
+
+    lastCalculation={L,W,H,thickness,paint,style,qty,area_m2,weight,volume_single,total_volume,cost_single,unitFee,freight};
+
+    document.getElementById("result").innerHTML=`
+         <b>规格：</b>${L}×${W}×${H} cm<br>
+         <b>厚度：</b>${thickness} mm<br>
+         <b>烤漆类型：</b>${paint} 元/kg<br>
+         <b>款式：</b>${style}<br>
+         <b>数量：</b>${qty} 个<br>
+         <b>单个面积：</b>${area_m2.toFixed(3)} ㎡<br>
+         <b>单个重量：</b>${weight.toFixed(2)} kg<br>
+         <b>单个方数：</b>${volume_single.toFixed(3)} m³<br>
+         <b>总方数：</b>${total_volume.toFixed(3)} m³<br>
+         <b>单个成本(不含运费)：</b>${cost_single.toFixed(2)} 元<br>
+         <b>运费详情：</b> 总方数(${total_volume.toFixed(3)} m³) × 单方价格(${unitFee} 元/方) = ${freight.toFixed(2)} 元<br>
+         <div class='subtitle'>📌 请选择利润率下载客户报价单</div>${refTable}`;
+}
+
+function downloadExcel(singlePrice,totalPrice,freight){
+    if(!lastCalculation){
+        alert("请先计算报价！");
+        return;
+    }
+    let wb=XLSX.utils.book_new();
+    let ws=XLSX.utils.aoa_to_sheet([
+        ["🏢 公司名称：XXX花箱制造有限公司"],
+        ["📅 报价日期", new Date().toLocaleDateString()],
+        ["---------------------------------------------"],
+        ["客户报价单"],
+        ["产品参数", ""],
+        ["长度(cm)", lastCalculation.L],
+        ["宽度(cm)", lastCalculation.W],
+        ["高度(cm)", lastCalculation.H],
+        ["厚度(mm)", lastCalculation.thickness],
+        ["烤漆类型(元/kg)", lastCalculation.paint],
+        ["款式", lastCalculation.style],
+        ["数量(个)", lastCalculation.qty],
+        ["单个面积(㎡)", lastCalculation.area_m2.toFixed(3)],
+        ["单个重量(kg)", lastCalculation.weight.toFixed(2)],
+        ["单个方数(m³)", lastCalculation.volume_single.toFixed(3)],
+        ["总方数(m³)", lastCalculation.total_volume.toFixed(3)],
+        ["单个成本(不含运费)", lastCalculation.cost_single.toFixed(2)],
+        ["运费详情", `总方数(${lastCalculation.total_volume.toFixed(3)} m³) × 单方价格(${lastCalculation.unitFee} 元/方) = ${lastCalculation.freight.toFixed(2)} 元`],
+        ["单价(元)", singlePrice.toFixed(2)],
+        ["总价(元)", totalPrice.toFixed(2)],
+        ["含运费总价(元)", totalPrice.toFixed(2)],
+        ["---------------------------------------------"],
+        ["备注：本报价单为参考价，不含税费及其他附加费用。"]
+    ]);
+    XLSX.utils.book_append_sheet(wb,ws,"客户报价单");
+    XLSX.writeFile(wb,`客户报价单_${new Date().getTime()}.xlsx`);
+}
+</script>
+</head>
+<body>
+<div class="navbar">花箱智能报价系统（临时运费100元版-修复）</div>
+<div class="container">
+<h2>花箱成本与客户报价计算器</h2>
+<label>长度(cm):</label><input type="number" id="length"><br>
+<label>宽度(cm):</label><input type="number" id="width"><br>
+<label>高度(cm):</label><input type="number" id="height"><br>
+<label>厚度(mm):</label>
+<select id="thickness">
+<option value="0.7">0.7</option>
+<option value="1.0">1.0</option>
+<option value="1.2">1.2</option>
+</select><br>
+<label>烤漆类型:</label>
+<select id="paint">
+<option value="1.5">黑白标准色(1.5元/kg)</option>
+<option value="2.5">彩色烤漆(2.5元/kg)</option>
+<option value="3.5">特调色(3.5元/kg)</option>
+</select><br>
+<label>款式:</label>
+<select id="style">
+<option value="1">款式1（标准重量）</option>
+<option value="2">款式2（+3kg溢价）</option>
+<option value="3">款式3（+5kg溢价）</option>
+</select><br>
+<label>数量(个):</label><input type="number" id="quantity" placeholder="如 10"><br>
+<button onclick="calcCost()">计算报价</button>
+<div class="result" id="result"></div>
+</div>
+</body>
+</html>
